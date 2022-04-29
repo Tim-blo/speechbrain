@@ -5,7 +5,7 @@
 # ################################
 
 # Seed needs to be set at top of yaml, before objects with parameters are made
-seed: 1000
+seed: 0
 __set_seed: !apply:torch.manual_seed [!ref <seed>]
 output_folder: !ref /domino/datasets/local/train_wav2vec2_char/<seed>
 wer_file: !ref <output_folder>/wer.txt
@@ -13,17 +13,16 @@ save_folder: !ref <output_folder>/save
 train_log: !ref <output_folder>/train_log.txt
 
 # Where the wav2vec2 model is stored.
-wav2vec2_hub: /domino/datasets/local/wav2vec2-base-pretrained-960h
+wav2vec2_hub: /domino/datasets/local/wav2vec2-base-pretrained-no-finetuning
 
 # Data files
 data_folder: /domino/datasets/local/Librispeech/LibriSpeech # e,g./path/to/LibriSpeech
-# noise/ris dataset will automatically be downloaded
 data_folder_rirs: !ref <data_folder>
-train_splits: ["dev-clean"]
+train_splits: ["train-1h"]
 dev_splits: ["dev-clean"]
 test_splits: ["test-clean", "test-other"]
 skip_prep: False
-ckpt_interval_minutes: 25 # save checkpoint every N min
+ckpt_interval_minutes: 10 # save checkpoint every N min
 train_csv: !ref <output_folder>/train.csv
 valid_csv: !ref <output_folder>/dev-clean.csv
 test_csv:
@@ -31,15 +30,10 @@ test_csv:
    - !ref <output_folder>/test-other.csv
 
 # Training parameters
-number_of_epochs: 1 #1
-number_of_steps: 20000
-lr: 0.0001 # 0.9
-lr_peak: 0.0005
-n_warmup_steps: 2000
-n_constant_steps: 8000
-n_decay_steps: 10000
-decay_factor: 1.01
-# lr_wav2vec: 0.00001 # 0.0001
+number_of_steps: 15000
+lr: 0.00001
+lr_peak: 0.00003
+decay_factor: 1.01 
 sorting: ascending
 auto_mix_prec: False
 sample_rate: 16000
@@ -48,7 +42,7 @@ sample_rate: 16000
 # With data_parallel batch_size is split into N jobs
 # With DDP batch_size is multiplied by N jobs
 # Must be 3 per GPU to fit 32GB of VRAM
-batch_size: 3 # 6
+batch_size: 3
 test_batch_size: 8
 
 # Dataloader options
@@ -62,9 +56,7 @@ test_dataloader_opts:
    batch_size: !ref <test_batch_size>
 
 # Model parameters
-# activation: !name:torch.nn.LeakyReLU
-# dnn_layers: 1 # 2
-dnn_neurons: 768 # 1024
+dnn_neurons: 768
 freeze_wav2vec: False
 freeze_feature_extractor: True
 
@@ -80,17 +72,11 @@ eos_index: 2
 # Functions and classes
 #
 epoch_counter: !new:speechbrain.utils.epoch_loop.EpochCounter
-   limit: !ref <number_of_epochs>
+   limit: !ref <number_of_steps> # not number_of_epochs, because training stops after a given number of steps
 
 augmentation: !new:speechbrain.lobes.augment.TimeDomainSpecAugment
    sample_rate: !ref <sample_rate>
    speeds: [95, 100, 105]
-
-#enc: !new:speechbrain.lobes.models.VanillaNN.VanillaNN
-#   input_shape: [null, null, 768]
-#   activation: !ref <activation>
-#   dnn_blocks: !ref <dnn_layers>
-#   dnn_neurons: !ref <dnn_neurons>
 
 wav2vec2: !new:speechbrain.lobes.models.huggingface_wav2vec.HuggingFaceWav2Vec2
    source: !ref <wav2vec2_hub>
@@ -98,18 +84,6 @@ wav2vec2: !new:speechbrain.lobes.models.huggingface_wav2vec.HuggingFaceWav2Vec2
    freeze: !ref <freeze_wav2vec>
    freeze_feature_extractor: !ref <freeze_feature_extractor>
    save_path: !ref <save_folder>/wav2vec2_checkpoint
-
-#####
-# Uncomment this block if you prefer to use a Fairseq pretrained model instead
-# of a HuggingFace one. Here, we provide an URL that is obtained from the
-# Fairseq github for the multilingual XLSR.
-#
-#wav2vec2_url: https://dl.fbaipublicfiles.com/fairseq/wav2vec/wav2vec_vox_960h_pl.pt
-#wav2vec2: !new:speechbrain.lobes.models.fairseq_wav2vec.FairseqWav2Vec2
-#    pretrained_path: !ref <wav2vec2_url>
-#    output_norm: True
-#    freeze: False
-#    save_path: !ref <save_folder>/wav2vec2_checkpoint/model.pt
 
 ctc_lin: !new:speechbrain.nnet.linear.Linear
    input_size: !ref <dnn_neurons>
@@ -128,31 +102,14 @@ modules:
 model: !new:torch.nn.ModuleList
    - [!ref <wav2vec2>, !ref <ctc_lin>]
 
-#model_opt_class: !name:torch.optim.Adadelta
-#   lr: !ref <lr>
-#   rho: 0.95
-#   eps: 1.e-8
-
 model_opt_class: !name:torch.optim.Adam
    lr: !ref <lr>
-
-#wav2vec_opt_class: !name:torch.optim.Adam
-#   lr: !ref <lr_wav2vec>
 
 lr_annealing_model: !new:schedulers.PARPFineTuningScheduler
    lr_initial: !ref <lr>
    lr_peak: !ref <lr_peak>
-   n_warmup_steps: !ref <n_warmup_steps>
-   n_constant_steps: !ref <n_constant_steps>
-   n_decay_steps: !ref <n_decay_steps>
+   n_steps: !ref <number_of_steps>
    decay_factor: !ref <decay_factor>
-
-#lr_annealing_wav2vec: !new:speechbrain.nnet.schedulers.NewBobScheduler
-#   initial_value: !ref <lr_wav2vec>
-#   improvement_threshold: 0.0025
-#   annealing_factor: 0.9
-#   patient: 0
-
 
 checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
    checkpoints_dir: !ref <save_folder>
